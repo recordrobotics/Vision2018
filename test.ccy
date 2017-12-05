@@ -1,0 +1,93 @@
+#include <stdio.h>
+#include <unistd.h>
+#include <opencv2/opencv.hpp>
+#include "Timer.hh"
+
+#define FRAME_TIME    30
+#define FPS           60
+#define FRAME_WIDTH   640
+#define FRAME_HEIGHT  480
+#define CAPTURE_ID    0
+
+int main(int argc, char **argv)
+{
+    Timer::init();
+
+    cv::VideoCapture cap(CAPTURE_ID);
+
+    cap.set(CV_CAP_PROP_FRAME_WIDTH, FRAME_WIDTH);
+    cap.set(CV_CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT);
+    cap.set(CV_CAP_PROP_FPS, FPS);
+
+    cv::Mat image;
+
+    int connect_idx = 0;
+
+    while(true)
+    {
+        if(cap.grab() && cap.retrieve(image) && !image.empty())
+        {
+            cv::Size s = image.size();
+
+            if(s.width == FRAME_WIDTH && s.height == FRAME_HEIGHT)
+                break;
+        }
+
+        usleep(30000);
+
+        if(connect_idx++ % 30 == 0)
+            printf("Trying to connect...\n");
+    }
+
+    printf("Connected to camera\n");
+
+    //cv::Mat green_channel(image.size(), CV_8UC3, cv::Scalar::all(0));
+    //int fromTo[] = {1, 1};
+
+    cv::Mat hsv_image(image.size, CV_8UC3, cv::Scalar(0));
+    cv::Mat masked_image(image.size, CV_8UC3, cv::Scalar(0));
+
+//    cv::Scalar l(150, 0, 0);
+//    cv::Scalar u(255, 0, 0);
+    cv::Mat lowerb(image.size, CV_8UC3, cv::Scalar(150, 0, 0, 0));
+    cv::Mat upperb(image.size, CV_8UC3, cv::Scalar(255, 0, 0, 0));
+
+    while(cv::waitKey(FRAME_TIME) == -1)
+    {
+        if(cap.grab())
+        {
+            if(cap.retrieve(image))
+            {
+                cv::Size s = image.size();
+
+                if(image.empty())
+                    printf("Retrieved image in empty\n");
+                else if(s.width != FRAME_WIDTH || s.height != FRAME_HEIGHT)
+                    printf("Retrieved image size is incorrect: %d, %d instead of %d, %d\n", s.width, s.height, FRAME_WIDTH, FRAME_HEIGHT);
+                else
+                {
+                    try
+                    {
+                        cv::cvtColor(image, hsv_image, CV_BGR2HSV);
+
+                        //mixChannels(&image, 1, &hue_channel, 1, fromTo, 1);
+
+                        cv::inRange(hsv_image, lowerb, upperb, masked_image);
+
+                        cv::imshow("Result", masked_image);
+                    }
+                    catch(cv::Exception e)
+                    {
+                        printf("\nException encountered: %s\n", e.what());
+                    }
+                }
+            }
+            else
+                printf("Could not retrieve image\n");
+        }
+        else
+            printf("Could not grab image\n");
+    }
+
+    return 0;
+}
