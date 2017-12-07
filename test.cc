@@ -1,45 +1,43 @@
 #include <stdio.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
+//#include <ntcore.h>
+//#include <networktables/NetworkTable.h>
 #include <opencv2/opencv.hpp>
 #include "Timer.hh"
 
 #define FPS                 30
 #define FRAME_WIDTH         640
 #define FRAME_HEIGHT        480
-#define CAPTURE_ID          "/dev/video1"
-#define MIN_CONTOUR_AREA    160
+#define CAPTURE_PATH          "/dev/video1"
+#define MIN_CONTOUR_AREA    200
 #define THRESH_SENS         150
-#define HUE_LBOUND          80
-#define HUE_UBOUND          91
+#define HUE_LBOUND          70
+#define HUE_UBOUND          100
 #define CONNECT_SLEEP_TIME  30000   // us
 #define CONNECT_LOG_TIME    1000    // ms
-#define CAM_BUF_SIZE        1
 
 #ifndef DEBUG
-#define DEBUG
+//#define DEBUG
 #endif
 
-
-int main(int argc, char **argv)
+bool exists(const char *name)
 {
-    Timer::init();
+    struct stat buffer;
+    return (stat(name, &buffer) == 0);
+}
 
-    cv::VideoCapture cap(CAPTURE_ID);
+void connect(cv::VideoCapture *cap, cv::Mat *image)
+{
+	cap->open(CAPTURE_PATH);
 
-    cap.set(CV_CAP_PROP_FRAME_WIDTH, FRAME_WIDTH);
-    cap.set(CV_CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT);
-    //cap.set(CV_CAP_PROP_BUFFERSIZE, CAM_BUF_SIZE);
-    cap.set(CV_CAP_PROP_FPS, FPS);
-
-    cv::Mat image;
-
-    ms_t startTime = Timer::getMs();
+    ms_t logTime = Timer::getMs();
     while(true)
     {
-        if(cap.grab() && cap.retrieve(image) && !image.empty())
+        if(exists(CAPTURE_PATH) && cap->grab() && cap->retrieve(*image) && !image->empty())
         {
-            cv::Size s = image.size();
+            cv::Size s = image->size();
 
             if(s.width == FRAME_WIDTH && s.height == FRAME_HEIGHT)
                 break;
@@ -47,11 +45,31 @@ int main(int argc, char **argv)
 
         usleep(CONNECT_SLEEP_TIME);
 
-        if((Timer::getMs() - startTime) % CONNECT_LOG_TIME)
+        ms_t time = Timer::getMs();
+
+        if((time - logTime) > CONNECT_LOG_TIME) {
             printf("Trying to connect...\n");
+            logTime = time;
+        }
+
+        cap->open(CAPTURE_PATH);
     }
 
     printf("Connected to camera\n");
+}
+
+int main(int argc, char **argv)
+{
+    Timer::init();
+
+    cv::VideoCapture cap(CAPTURE_PATH);
+    cap.set(CV_CAP_PROP_FRAME_WIDTH, FRAME_WIDTH);
+    cap.set(CV_CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT);
+    cap.set(CV_CAP_PROP_FPS, FPS);
+
+    cv::Mat image;
+
+    connect(&cap, &image);
 
     cv::Mat result(image.size(), CV_8UC3, cv::Scalar::all(0));
 
@@ -62,9 +80,14 @@ int main(int argc, char **argv)
 
     ms_t lastTime = Timer::getMs();
 
+#ifdef DEBUG
     while(cv::waitKey(1) != 27)
     {
         ms_t t1 = Timer::getMs();
+#else
+    while(true)
+    {
+#endif
         if(cap.grab())
         {
 #ifdef DEBUG
@@ -133,13 +156,14 @@ int main(int argc, char **argv)
         else
             printf("Could not grab image\n");
 
-#ifdef DEBUG
+        if(!exists(CAPTURE_PATH))
+            connect(&cap, &image);
+
         ms_t time = Timer::getMs();
         ms_t dt = time - lastTime;
         lastTime = time;
 
         printf("Loop time: %lld ms\n", dt);
-#endif
     }
 
     return 0;
