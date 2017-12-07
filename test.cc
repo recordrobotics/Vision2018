@@ -30,7 +30,7 @@ bool exists(const char *name)
 
 void connect(cv::VideoCapture *cap, cv::Mat *image)
 {
-	cap->open(CAPTURE_PATH);
+    cap->open(CAPTURE_PATH);
 
     ms_t logTime = Timer::getMs();
     while(true)
