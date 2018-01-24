@@ -14,11 +14,11 @@
 #define MIN_CONTOUR_AREA    50
 #define MIN_CONTOUR_FRAC    0.0
 #define EPS                 0.04
-#define HUE_LBOUND          70
-#define HUE_UBOUND          100
-#define SAT_LBOUND          10
-#define SAT_UBOUND          140
-#define VALUE_LBOUND        240
+#define HUE_LBOUND          30
+#define HUE_UBOUND          40
+#define SAT_LBOUND          90
+#define SAT_UBOUND          190
+#define VALUE_LBOUND        150
 #define VALUE_UBOUND        255
 #define CONNECT_SLEEP_TIME  30000   // us
 #define CONNECT_LOG_TIME    1000    // ms
@@ -225,7 +225,7 @@ int main(int argc, char **argv)
 
                         applyKernel(temp, hsv_image, HSVKernel);
 
-                        cv::GaussianBlur(temp, temp, cv::Size(3, 3), 1.0, 1.2);
+                        cv::GaussianBlur(temp, temp, cv::Size(7, 7), 1.0, 1.2);
 
 //                        grayConvolution(result, temp, cv::Size(3, 5));
 
@@ -267,7 +267,7 @@ int main(int argc, char **argv)
 
                         size_t l2 = contours.size();
 
-                        if(l2 < 2) {
+                        if(l2 < 1) {
                             //drawContours(image, contours, -1, cv::Scalar(0, 0, 250), 1);
                             printf("Too few countours were found\n");
                         }
@@ -280,76 +280,17 @@ int main(int argc, char **argv)
                                 contours[i].centroid.y = m.m01 / m.m00;
                             }
 
-                            double best = 0.0;
-                            size_t opt_c1 = 0, opt_c2 = 1;
+                            size_t opt = l2 - 1;
 
                             for(size_t i = 0; i < l2; i++)
                             {
-                                for(size_t j = (i + 1); j < l2; j++)
-                                {
-                                    double ass = contours[i].area + contours[j].area;
 
-                                    double ur = 0.4;
-                                    double lr = 0.12;
-                                    double r1 = (double)contours[i].bbox.width / (double)contours[i].bbox.height;
-                                    double r2 = (double)contours[j].bbox.width / (double)contours[j].bbox.height;
-
-                                    if(r1 > ur || r1 < lr || r2 > ur || r2 < lr)
-                                        continue;
-
-                                    double score = 1.0 / (1.0 + 4.0 * fabs(contours[i].centroid.y - contours[j].centroid.y) / ass +
-                                                   fabs(contours[i].centroid.x - contours[j].centroid.x) / ass +
-                                                   0.2 * fabs(contours[i].area - contours[j].area) / ass);
-
-                                    //printf("Score: %f, area score: %f\n", score, fabs(contours[i].second - contours[j].second) / ass);
-
-                                    if(score > best)
-                                    {
-                                        best = score;
-
-                                        opt_c1 = i;
-                                        opt_c2 = j;
-                                        /*best_p1 = contours[i].centroid;
-                                        best_p2 = contours[j].centroid;
-                                        best_p1.x = centroids_x[i];
-                                        best_p1.y = centroids_y[i];
-                                        best_p2.x = centroids_x[j];
-                                        best_p2.y = centroids_y[j];*/
-                                    }
-                                }
                             }
 
 #ifdef DEBUG
-                            double optr = 0.125;
-                                    double r1 = (double)contours[opt_c1].bbox.width / (double)contours[opt_c1].bbox.height;
-                                    double r2 = (double)contours[opt_c2].bbox.width / (double)contours[opt_c2].bbox.height;
+                            cv::circle(image, contours[opt].centroid, 10, cv::Scalar(0, 0, 250), 2);
 
-                                    printf("Ratios: %f %f\n", r1, r2);
-
-                            cv::Point best_p1 = contours[opt_c1].centroid;
-                            cv::Point best_p2 = contours[opt_c2].centroid;
-
-                            cv::circle(image, best_p1, 10, cv::Scalar(0, 0, 250), 2);
-                            cv::circle(image, best_p2, 10, cv::Scalar(0, 0, 250), 2);
-
-                            cv::Vec3b best_p1_vals = hsv_image.at<cv::Vec3b>(best_p1.x, best_p1.y);
-                            cv::Vec3b best_p2_vals = hsv_image.at<cv::Vec3b>(best_p2.x, best_p2.y);
-                            cv::Vec3b center_vals = hsv_image.at<cv::Vec3b>(FRAME_WIDTH / 2, FRAME_HEIGHT / 2);
-
-                            char best_p1_str[BUFSZ];
-                            char best_p2_str[BUFSZ];
-                            char center_str[BUFSZ];
-
-                            sprintf(best_p1_str, "(%d, %d, %d)", best_p1_vals.val[0], best_p1_vals.val[1], best_p1_vals.val[2]);
-                            sprintf(best_p2_str, "(%d, %d, %d)", best_p2_vals.val[0], best_p2_vals.val[1], best_p2_vals.val[2]);
-                            sprintf(center_str, "(%d, %d, %d)", center_vals.val[0], center_vals.val[1], center_vals.val[2]);
-
-                            //cv::putText(image, best_p1_str, best_p1 + cv::Point(-100, 10), cv::FONT_HERSHEY_PLAIN, 1.0, cv::Scalar(0, 0, 250));
-                            //cv::putText(image, best_p2_str, best_p2 + cv::Point(10, 10), cv::FONT_HERSHEY_PLAIN, 1.0, cv::Scalar(0, 0, 250));
-                            //printf("%s        %s        %s\n", best_p1_str, center_str, best_p2_str);
-                            //printf("s: %s\n", center_str);
-
-                            cv::circle(hsv_image, cv::Point(FRAME_WIDTH / 2, FRAME_HEIGHT / 2), 10, cv::Scalar(0, 0, 250), 2);
+                            cv::circle(hsv_image, cv::Point(FRAME_WIDTH / 2, FRAME_HEIGHT / 2), 10, cv::Scalar(0, 250, 0), 2);
                         }
 
                         cv::imshow("Image", hsv_image);
