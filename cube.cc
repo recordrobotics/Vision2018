@@ -183,6 +183,7 @@ int main(int argc, char **argv)
     cv::Mat hsv_image(image.size(), CV_8UC3, cv::Scalar::all(0));
     cv::Mat result(image.size(), CV_8UC1, cv::Scalar::all(0));
     cv::Mat temp(image.size(), CV_8UC1, cv::Scalar::all(0));
+	cv::Mat edges(image.size(), CV_8UC1, cv::Scalar::all(0));
 //    cv::Mat color_mask(image.size(), CV_8UC3, cv::Scalar::all(0));
 
 //    cv::Scalar lowerb(HUE_LBOUND, 0, 255 - THRESH_SENS);
@@ -293,9 +294,13 @@ int main(int argc, char **argv)
                             cv::circle(hsv_image, cv::Point(FRAME_WIDTH / 2, FRAME_HEIGHT / 2), 10, cv::Scalar(0, 250, 0), 2);
                         }
 
-                        cv::imshow("Image", hsv_image);
+
+						cv::Canny(image, edges, 50, 200);
+
+                        //cv::imshow("Image", hsv_image);
                         cv::imshow("Mask", temp);
-                        cv::imshow("Original", image);
+                        //cv::imshow("Original", image);
+						cv::imshow("Edges", edges);
 
 #else
                         }
