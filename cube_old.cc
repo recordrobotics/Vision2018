@@ -8,17 +8,18 @@
 #include "Timer.hh"
 
 #define FPS                 30
-#define FRAME_WIDTH         640
-#define FRAME_HEIGHT        480
-#define CAPTURE_PATH        "/dev/video1"
+#define FRAME_WIDTH         320
+#define FRAME_HEIGHT        240
+#define CAPTURE_PATH        0
+#define MAX_CAPTURE_PATH    10
 #define MIN_CONTOUR_AREA    50
 #define MIN_CONTOUR_FRAC    0.0
 #define EPS                 0.04
-#define HUE_LBOUND          70
-#define HUE_UBOUND          100
-#define SAT_LBOUND          10
-#define SAT_UBOUND          140
-#define VALUE_LBOUND        240
+#define HUE_LBOUND          30
+#define HUE_UBOUND          40
+#define SAT_LBOUND          90
+#define SAT_UBOUND          190
+#define VALUE_LBOUND        150
 #define VALUE_UBOUND        255
 #define CONNECT_SLEEP_TIME  30000   // us
 #define CONNECT_LOG_TIME    1000    // ms
@@ -32,7 +33,7 @@
 // Matrices must be dense and differently allocated
 void applyKernel(cv::Mat& dest, const cv::Mat& src, void (*kernel)(uint8_t *dest, const uint8_t *src))
 {
--    if(src.data == dest.data) {
+    if(src.data == dest.data) {
         printf("Matrices must be different\n");
         return;
     }
@@ -50,8 +51,8 @@ void applyKernel(cv::Mat& dest, const cv::Mat& src, void (*kernel)(uint8_t *dest
         for(int j = 0; j < cols; j++) {
             kernel(&ddata[dchannels * (i * cols + j)], &sdata[schannels * (i * cols + j)]);
 
-            if(i == (rows / 2) && j == (cols / 2))
-                printf("(%d, %d, %d)\n", sdata[schannels * (i * cols + j)], sdata[schannels * (i * cols + j) + 1], sdata[schannels * (i * cols + j) + 2]);
+            //if(i == (rows / 2) && j == (cols / 2))
+            //    printf("Center color (HSV): (%d, %d, %d)\n", sdata[schannels * (i * cols + j)], sdata[schannels * (i * cols + j) + 1], sdata[schannels * (i * cols + j) + 2]);
         }
     }
 }
@@ -120,19 +121,30 @@ void HSVKernel(uint8_t *dest_pixel, const uint8_t *src_pixel)
 }
 
 bool exists(const char *name)
+
 {
     struct stat buffer;
     return (stat(name, &buffer) == 0);
 }
 
+void setProps(cv::VideoCapture *cap)
+{
+    cap->set(CV_CAP_PROP_FRAME_WIDTH, FRAME_WIDTH);
+    cap->set(CV_CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT);
+    cap->set(CV_CAP_PROP_FPS, FPS);
+}
+
 void connect(cv::VideoCapture *cap, cv::Mat *image)
 {
-    cap->open(CAPTURE_PATH);
+    int path = 0;
+
+    cap->open(path);
+    setProps(cap);
 
     ms_t logTime = Timer::getMs();
     while(true)
     {
-        if(exists(CAPTURE_PATH) && cap->grab() && cap->retrieve(*image) && !image->empty())
+        if(/*exists(path) &&*/ cap->grab() && cap->retrieve(*image) && !image->empty())
         {
             cv::Size s = image->size();
 
@@ -149,13 +161,18 @@ void connect(cv::VideoCapture *cap, cv::Mat *image)
             logTime = time;
         }
 
-        cap->open(CAPTURE_PATH);
+        if(++path > MAX_CAPTURE_PATH)
+            path = 0;
+
+        cap->open(path);
+        setProps(cap);
     }
 
     printf("Connected to camera\n");
 }
 
 typedef struct contour {
+
     std::vector<cv::Point> points;
     double area;
     cv::Rect bbox;
@@ -172,9 +189,7 @@ int main(int argc, char **argv)
     Timer::init();
 
     cv::VideoCapture cap(CAPTURE_PATH);
-    cap.set(CV_CAP_PROP_FRAME_WIDTH, FRAME_WIDTH);
-    cap.set(CV_CAP_PROP_FRAME_HEIGHT, FRAME_HEIGHT);
-    cap.set(CV_CAP_PROP_FPS, FPS);
+    setProps(&cap);
 
     cv::Mat image;
 
@@ -183,6 +198,7 @@ int main(int argc, char **argv)
     cv::Mat hsv_image(image.size(), CV_8UC3, cv::Scalar::all(0));
     cv::Mat result(image.size(), CV_8UC1, cv::Scalar::all(0));
     cv::Mat temp(image.size(), CV_8UC1, cv::Scalar::all(0));
+	cv::Mat edges(image.size(), CV_8UC1, cv::Scalar::all(0));
 //    cv::Mat color_mask(image.size(), CV_8UC3, cv::Scalar::all(0));
 
 //    cv::Scalar lowerb(HUE_LBOUND, 0, 255 - THRESH_SENS);
@@ -216,6 +232,7 @@ int main(int argc, char **argv)
                     printf("Retrieved image size is incorrect: %d, %d instead of %d, %d\n", s.width, s.height, FRAME_WIDTH, FRAME_HEIGHT);
                 else
                 {
+
                     try
                     {
                         cv::cvtColor(image, hsv_image, CV_BGR2HSV);
@@ -225,7 +242,7 @@ int main(int argc, char **argv)
 
                         applyKernel(temp, hsv_image, HSVKernel);
 
-                        cv::GaussianBlur(temp, temp, cv::Size(3, 3), 1.0, 1.2);
+                        cv::GaussianBlur(temp, temp, cv::Size(7, 7), 1.0, 1.2);
 
 //                        grayConvolution(result, temp, cv::Size(3, 5));
 
@@ -254,6 +271,7 @@ int main(int argc, char **argv)
 
                         if(contours.size() && contours[0].area < MIN_CONTOUR_AREA)
                         {
+
                             ssize_t ll = contours.size();
 
                             for(ssize_t i = 0; i < ll; i++)
@@ -267,11 +285,11 @@ int main(int argc, char **argv)
 
                         size_t l2 = contours.size();
 
-                        if(l2 < 2) {
+                        if(l2 < 1) {
                             //drawContours(image, contours, -1, cv::Scalar(0, 0, 250), 1);
                             printf("Too few countours were found\n");
                         }
-                        else
+                else
                         {
                             for(size_t i = 0; i < l2; i++)
                             {
@@ -280,81 +298,28 @@ int main(int argc, char **argv)
                                 contours[i].centroid.y = m.m01 / m.m00;
                             }
 
-                            double best = 0.0;
-                            size_t opt_c1 = 0, opt_c2 = 1;
+                            size_t opt = l2 - 1;
 
                             for(size_t i = 0; i < l2; i++)
                             {
-                                for(size_t j = (i + 1); j < l2; j++)
-                                {
-                                    double ass = contours[i].area + contours[j].area;
 
-                                    double ur = 0.4;
-                                    double lr = 0.12;
-                                    double r1 = (double)contours[i].bbox.width / (double)contours[i].bbox.height;
-                                    double r2 = (double)contours[j].bbox.width / (double)contours[j].bbox.height;
-
-                                    if(r1 > ur || r1 < lr || r2 > ur || r2 < lr)
-                                        continue;
-
-                                    double score = 1.0 / (1.0 + 4.0 * fabs(contours[i].centroid.y - contours[j].centroid.y) / ass +
-                                                   fabs(contours[i].centroid.x - contours[j].centroid.x) / ass +
-                                                   0.2 * fabs(contours[i].area - contours[j].area) / ass);
-
-                                    //printf("Score: %f, area score: %f\n", score, fabs(contours[i].second - contours[j].second) / ass);
-
-                                    if(score > best)
-                                    {
-                                        best = score;
-
-                                        opt_c1 = i;
-                                        opt_c2 = j;
-                                        /*best_p1 = contours[i].centroid;
-                                        best_p2 = contours[j].centroid;
-                                        best_p1.x = centroids_x[i];
-                                        best_p1.y = centroids_y[i];
-                                        best_p2.x = centroids_x[j];
-                                        best_p2.y = centroids_y[j];*/
-                                    }
-                                }
                             }
 
+                            printf("Opt: %d %d\n", contours[opt].centroid.x, contours[opt].centroid.y);
+
 #ifdef DEBUG
-                            double optr = 0.125;
-                                    double r1 = (double)contours[opt_c1].bbox.width / (double)contours[opt_c1].bbox.height;
-                                    double r2 = (double)contours[opt_c2].bbox.width / (double)contours[opt_c2].bbox.height;
+                            cv::circle(image, contours[opt].centroid, 10, cv::Scalar(0, 0, 250), 2);
 
-                                    printf("Ratios: %f %f\n", r1, r2);
-
-                            cv::Point best_p1 = contours[opt_c1].centroid;
-                            cv::Point best_p2 = contours[opt_c2].centroid;
-
-                            cv::circle(image, best_p1, 10, cv::Scalar(0, 0, 250), 2);
-                            cv::circle(image, best_p2, 10, cv::Scalar(0, 0, 250), 2);
-
-                            cv::Vec3b best_p1_vals = hsv_image.at<cv::Vec3b>(best_p1.x, best_p1.y);
-                            cv::Vec3b best_p2_vals = hsv_image.at<cv::Vec3b>(best_p2.x, best_p2.y);
-                            cv::Vec3b center_vals = hsv_image.at<cv::Vec3b>(FRAME_WIDTH / 2, FRAME_HEIGHT / 2);
-
-                            char best_p1_str[BUFSZ];
-                            char best_p2_str[BUFSZ];
-                            char center_str[BUFSZ];
-
-                            sprintf(best_p1_str, "(%d, %d, %d)", best_p1_vals.val[0], best_p1_vals.val[1], best_p1_vals.val[2]);
-                            sprintf(best_p2_str, "(%d, %d, %d)", best_p2_vals.val[0], best_p2_vals.val[1], best_p2_vals.val[2]);
-                            sprintf(center_str, "(%d, %d, %d)", center_vals.val[0], center_vals.val[1], center_vals.val[2]);
-
-                            //cv::putText(image, best_p1_str, best_p1 + cv::Point(-100, 10), cv::FONT_HERSHEY_PLAIN, 1.0, cv::Scalar(0, 0, 250));
-                            //cv::putText(image, best_p2_str, best_p2 + cv::Point(10, 10), cv::FONT_HERSHEY_PLAIN, 1.0, cv::Scalar(0, 0, 250));
-                            //printf("%s        %s        %s\n", best_p1_str, center_str, best_p2_str);
-                            //printf("s: %s\n", center_str);
-
-                            cv::circle(hsv_image, cv::Point(FRAME_WIDTH / 2, FRAME_HEIGHT / 2), 10, cv::Scalar(0, 0, 250), 2);
+                            cv::circle(hsv_image, cv::Point(FRAME_WIDTH / 2, FRAME_HEIGHT / 2), 10, cv::Scalar(0, 250, 0), 2);
                         }
 
-                        cv::imshow("Image", hsv_image);
-                        cv::imshow("Mask", temp);
+
+						cv::Canny(image, edges, 50, 200);
+
+                        //cv::imshow("Image", hsv_image);
+                        //cv::imshow("Mask", temp);
                         cv::imshow("Original", image);
+						//cv::imshow("Edges", edges);
 
 #else
                         }
@@ -366,14 +331,15 @@ int main(int argc, char **argv)
                     }
                 }
             }
-            else
+            else {
                 printf("Could not retrieve image\n");
+                connect(&cap, &image);
+            }
         }
-        else
+        else {
             printf("Could not grab image\n");
-
-        if(!exists(CAPTURE_PATH))
             connect(&cap, &image);
+        }
 
         ms_t time = Timer::getMs();
         ms_t dt = time - lastTime;
