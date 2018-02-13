@@ -2,7 +2,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
-#include <Python.h>
+#include <python2.7/Python.h>
 //#include <ntcore.h>
 //#include <networktables/NetworkTable.h>
 #include <opencv2/opencv.hpp>
@@ -24,11 +24,11 @@
 #define VALUE_UBOUND        255
 #define CONNECT_SLEEP_TIME  30000   // us
 #define CONNECT_LOG_TIME    1000    // ms
-#define SEND_SIG            "q{A#;"
-#define ROBORIO_IP          "10.67.31.2"
 
-typedef uint32_t ip_t;
-typedef uint32_t send_t;
+#define X_ENTRY             "camera_x"
+#define Y_ENTRY             "camera_y"
+#define ROBORIO_IP          "10.67.31.2"
+#define TABLE_NAME          "SmartDashboard"
 
 //#define DEBUG
 //#define LOOP_TIME
@@ -52,8 +52,6 @@ void applyKernel(cv::Mat& dest, const cv::Mat& src)
     const uint8_t *sdata = (uint8_t*)src.data;
     uint8_t *ddata = (uint8_t*)dest.data;
 
-    //printf("%d %d\n", src.rows, dest.cols);
-
     for(int i = 0; i < rows; i++)
     {
         for(int j = 0; j < cols; j++)
@@ -66,18 +64,11 @@ void applyKernel(cv::Mat& dest, const cv::Mat& src)
                src_pixel[2] >= VALUE_LBOUND && src_pixel[2] <= VALUE_UBOUND)
             {
                 dest_pixel[0] = 255;
-                //dest_pixel[1] = 255;
-                //dest_pixel[2] = 255;
             }
             else
             {
                 dest_pixel[0] = 0;
-                //dest_pixel[1] = 0;
-                //dest_pixel[2] = 0;
             }
-
-            //if(i == (rows / 2) && j == (cols / 2))
-            //    printf("Center color (HSV): (%d, %d, %d)\n", src_pixel[0], src_pixel[1], src_pixel[2]);
         }
     }
 }
@@ -89,15 +80,34 @@ void setProps(cv::VideoCapture *cap)
     cap->set(CV_CAP_PROP_FPS, FPS);
 }
 
-void connect(cv::VideoCapture *cap, cv::Mat *image)
+void connect(cv::VideoCapture *cap, cv::Mat *image, PyObject **send_func, PyObject *init_func, PyObject *gettable_func)
 {
-    cap->open(CAMERA_PATH);
-    setProps(cap);
+	PyObject *init_args = PyTuple_New(1);
+	PyObject *ivalue = PyString_FromString(ROBORIO_IP);
+	PyTuple_SetItem(init_args, 0, ivalue);
+
+	PyObject *gettable_args = PyTuple_New(1);
+	PyObject *tvalue = PyString_FromString(TABLE_NAME);
+	PyTuple_SetItem(gettable_args, 0, tvalue);
 
     ms_t logTime = Timer::getMs();
     while(true)
     {
-        if(/*exists(path) &&*/ cap->grab() && cap->retrieve(*image) && !image->empty())
+        cap->open(CAMERA_PATH);
+        setProps(cap);
+
+		if(!*send_func || PyCallable_Check(*send_func)) {
+			Py_XDECREF(*send_func);
+			*send_func = NULL;
+			ivalue = PyObject_CallObject(init_func, init_args);
+    		tvalue = PyObject_CallObject(gettable_func, gettable_args);
+
+			if(tvalue)
+				*send_func = PyObject_GetAttrString(tvalue, "putNumber");
+		}
+
+		// Check if ivalue and tvalue are correct
+        if(cap->grab() && cap->retrieve(*image) && !image->empty())
         {
             cv::Size s = image->size();
 
@@ -105,7 +115,7 @@ void connect(cv::VideoCapture *cap, cv::Mat *image)
                 break;
         }
 
-        usleep(CONNECT_SLEEP_TIME);
+		usleep(CONNECT_SLEEP_TIME);
 
         ms_t time = Timer::getMs();
 
@@ -113,12 +123,47 @@ void connect(cv::VideoCapture *cap, cv::Mat *image)
             printf("Trying to connect...\n");
             logTime = time;
         }
+	}
 
-        cap->open(CAMERA_PATH);
-        setProps(cap);
-    }
+	Py_DECREF(init_args);
+	Py_DECREF(gettable_args);
 
     printf("Connected to camera\n");
+}
+
+bool initpy(PyObject **init_func, PyObject **gettable_func)
+{
+	Py_Initialize();
+	PyObject *module_name = PyString_FromString("networktables");
+	PyObject *module = PyImport_Import(module_name);
+	Py_DECREF(module_name);
+
+	if(!module) {
+		PyErr_Print();
+		printf("PYTHON ERROR: Could not import networktables!\n");
+		return false;
+	}
+
+	*init_func = PyObject_GetAttrString(module, "initialize");
+	if(!*init_func || !PyCallable_Check(*init_func)) {
+		if(PyErr_Occurred())
+			PyErr_Print();
+        printf("PYTHON ERROR: Could not get initialize function!\n");
+		Py_DECREF(module);
+        return false;
+    }
+
+	*gettable_func = PyObject_GetAttrString(module, "getTable");
+    if(!*gettable_func || !PyCallable_Check(*gettable_func)) {
+		if(PyErr_Occurred())
+            PyErr_Print();
+        printf("PYTHON ERROR: Could not get getTable function!\n");
+        Py_DECREF(module);
+		Py_DECREF(*init_func);
+		return false;
+    }
+
+	return true;
 }
 
 int main(int argc, char **argv)
@@ -130,20 +175,23 @@ int main(int argc, char **argv)
 
     cv::Mat image;
 
-    connect(&cap, &image);
+	PyObject *send_x_args = NULL, *send_y_args = NULL, *send_func = NULL, *init_func = NULL, *gettable_func = NULL, *s = NULL;
+	initpy(&init_func, &gettable_func);
+	send_x_args = PyTuple_New(2);
+	send_y_args = PyTuple_New(2);
+	s = PyString_FromString(X_ENTRY);
+	if(s && send_x_args)
+		PyTuple_SetItem(send_x_args, 0, s);
+	s = PyString_FromString(Y_ENTRY);
+	if(s && send_y_args)
+		PyTuple_SetItem(send_y_args, 0, s);
+
+	connect(&cap, &image, &send_func, init_func, gettable_func);
 
     cv::Mat hsv_image(image.size(), CV_8UC3, cv::Scalar::all(0));
     cv::Mat temp(image.size(), CV_8UC1, cv::Scalar::all(0));
 
     std::vector<std::vector<cv::Point>> contours;
-
-	size_t send_sig_len = strlen(SEND_SIG);
-	size_t sent_t_len = sizeof(send_t);
-	char mes[send_sig_len + 2 * send_t_len];
-	strcpy(mes_len, SEND_SIG);
-
-	struct in_addr roborio_ip;
-	inet_pton(AF_INET, ROBORIO_IP, &roborio_ip);
 
 #ifdef LOOP_TIME
     ms_t lastTime = Timer::getMs();
@@ -199,10 +247,38 @@ int main(int argc, char **argv)
                             cv::Moments m = cv::moments(contours[opt_idx]);
                             cv::Point centroid(m.m10 / m.m00, m.m01 / m.m00);
 
-							*(send_t*)mes[send_sig_len] = (send_t)centroid.x;
-							*(send_t*)mes[send_sig_len + send_t_len] = (send_t)centroid.y;
+							if(send_x_args) {
+								PyObject *val = PyInt_FromLong(centroid.x);
 
-							Network::sendPacket(roborio_ip, mes, send_sig_len + 2 * send_t_len);
+								if(val) {
+									PyTuple_SetItem(send_x_args, 1, val);
+									if(send_x_args) {
+										PyObject_CallObject(send_func, send_x_args);
+										// Handle output of call
+									}
+								}
+								else
+									printf("PYTHON ERROR: Could not create int from long for centroid.x\n");
+							}
+							else
+								printf("PYTHON ERROR: send_x_args is NULL in main loop\n");
+
+							if(send_y_args) {
+                                PyObject *val = PyInt_FromLong(centroid.y);
+
+                                if(val) {
+									PyTuple_SetItem(send_y_args, 1, val);
+                                    if(send_y_args) {
+										PyObject_CallObject(send_func, send_y_args);
+                                    	// Handle output of call
+                                	}
+								}
+                                else
+                                    printf("PYTHON ERROR: Could not create int from long for centroid.y\n");
+                            }
+							else
+								printf("PYTHON ERROR: send_y_args is NULL in main loop\n");
+
 #ifdef DEBUG
                             cv::circle(image, centroid, 10, cv::Scalar(0, 0, 250), 2);
                         }
@@ -223,12 +299,12 @@ int main(int argc, char **argv)
             }
             else {
                 printf("Could not retrieve image\n");
-                connect(&cap, &image);
+                connect(&cap, &image, &send_func, init_func, gettable_func);
             }
         }
         else {
             printf("Could not grab image\n");
-            connect(&cap, &image);
+            connect(&cap, &image, &send_func, init_func, gettable_func);
         }
 
 #ifdef LOOP_TIME
@@ -239,6 +315,14 @@ int main(int argc, char **argv)
         printf("Loop time: %lld ms\n", dt);
 #endif
     }
+
+	Py_XDECREF(send_x_args);
+	Py_XDECREF(send_y_args);
+	Py_XDECREF(send_func);
+	Py_XDECREF(init_func);
+	Py_XDECREF(gettable_func);
+
+	Py_Finalize();
 
     return 0;
 }
