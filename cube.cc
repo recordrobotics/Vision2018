@@ -10,7 +10,7 @@
 #define FPS                 30
 #define FRAME_WIDTH         320
 #define FRAME_HEIGHT        240
-#define CAPTURE_PATH        0
+#define CAMERA_PATH         0
 #define MAX_CAPTURE_PATH    10
 #define MIN_CONTOUR_AREA    50
 #define MIN_CONTOUR_FRAC    0.0
@@ -26,7 +26,7 @@
 
 #define BUFSZ               1024
 
-#define DEBUG
+//#define DEBUG
 //#define LOOP_TIME
 
 // Matrices must be dense and differently allocated
@@ -48,13 +48,13 @@ void applyKernel(cv::Mat& dest, const cv::Mat& src)
     const uint8_t *sdata = (uint8_t*)src.data;
     uint8_t *ddata = (uint8_t*)dest.data;
 
-    printf("%d %d\n", src.step, dest.step);
+    //printf("%d %d\n", src.rows, dest.cols);
 
     for(int i = 0; i < rows; i++)
     {
         for(int j = 0; j < cols; j++)
         {
-            const uint8_t *src_pixel = &sdata[3 * (i * src.step + j)];
+            const uint8_t *src_pixel = &sdata[i * src.step + j * 3];
             uint8_t *dest_pixel = &ddata[i * dest.step + j];
 
             if(src_pixel[0] >= HUE_LBOUND && src_pixel[0] <= HUE_UBOUND &&
@@ -62,14 +62,18 @@ void applyKernel(cv::Mat& dest, const cv::Mat& src)
                src_pixel[2] >= VALUE_LBOUND && src_pixel[2] <= VALUE_UBOUND)
             {
                 dest_pixel[0] = 255;
+                //dest_pixel[1] = 255;
+                //dest_pixel[2] = 255;
             }
             else
             {
                 dest_pixel[0] = 0;
+                //dest_pixel[1] = 0;
+                //dest_pixel[2] = 0;
             }
 
-            if(i == (rows / 2) && j == (cols / 2))
-                printf("Center color (HSV): (%d, %d, %d)\n", src_pixel[0], src_pixel[1], src_pixel[2]);
+            //if(i == (rows / 2) && j == (cols / 2))
+            //    printf("Center color (HSV): (%d, %d, %d)\n", src_pixel[0], src_pixel[1], src_pixel[2]);
         }
     }
 }
@@ -83,9 +87,7 @@ void setProps(cv::VideoCapture *cap)
 
 void connect(cv::VideoCapture *cap, cv::Mat *image)
 {
-    int path = 0;
-
-    cap->open(path);
+    cap->open(CAMERA_PATH);
     setProps(cap);
 
     ms_t logTime = Timer::getMs();
@@ -108,10 +110,7 @@ void connect(cv::VideoCapture *cap, cv::Mat *image)
             logTime = time;
         }
 
-        if(++path > MAX_CAPTURE_PATH)
-            path = 0;
-
-        cap->open(path);
+        cap->open(CAMERA_PATH);
         setProps(cap);
     }
 
@@ -122,7 +121,7 @@ int main(int argc, char **argv)
 {
     Timer::init();
 
-    cv::VideoCapture cap(CAPTURE_PATH);
+    cv::VideoCapture cap(CAMERA_PATH);
     setProps(&cap);
 
     cv::Mat image;
@@ -130,10 +129,11 @@ int main(int argc, char **argv)
     connect(&cap, &image);
 
     cv::Mat hsv_image(image.size(), CV_8UC3, cv::Scalar::all(0));
-    cv::Mat result(image.size(), CV_8UC1, cv::Scalar::all(0));
     cv::Mat temp(image.size(), CV_8UC1, cv::Scalar::all(0));
 
     std::vector<std::vector<cv::Point>> contours;
+
+    FILE *out_fp = fopen("out.txt", "w");
 
 #ifdef LOOP_TIME
     ms_t lastTime = Timer::getMs();
@@ -164,16 +164,23 @@ int main(int argc, char **argv)
 
                         applyKernel(temp, hsv_image);
 
-                        //cv::GaussianBlur(temp, temp, cv::Size(7, 7), 1.0, 1.2);
+                        cv::GaussianBlur(temp, temp, cv::Size(3, 3), 1.0, 1.2);
+
+#ifdef DEBUG
+                        cv::imshow("Mask", temp);
+#endif
 
                         findContours(temp, contours, CV_RETR_LIST, CV_CHAIN_APPROX_SIMPLE);
 
                         ssize_t opt_idx = -1;
-                        double m_a = 0.0;
+                        double m_a = 0.0, a = 0.0;
                         size_t l = contours.size();
-                        for(size_t i = 0; i < l; i++)
-                            if(contourArea(contours[i]) > m_a)
+                        for(size_t i = 0; i < l; i++) {
+                            if((a = contourArea(contours[i])) > m_a) {
+                                m_a = a;
                                 opt_idx = i;
+                            }
+                        }
 
                         if(l < 1 || opt_idx == -1)
                             printf("Too few countours were found\n");
@@ -182,17 +189,15 @@ int main(int argc, char **argv)
                             cv::Moments m = cv::moments(contours[opt_idx]);
                             cv::Point centroid(m.m10 / m.m00, m.m01 / m.m00);
 
-                            //printf("Opt: %d %d\n", centroid.x, centroid.y);
+                            fprintf(out_fp, "%d %d\n", centroid.x, centroid.y);
+                            fflush(out_fp);
 
 #ifdef DEBUG
                             cv::circle(image, centroid, 10, cv::Scalar(0, 0, 250), 2);
-
-                            cv::circle(temp, cv::Point(FRAME_WIDTH / 2, FRAME_HEIGHT / 2), 10, cv::Scalar(250), 2);
                         }
 
-
+                        //cv::circle(temp, cv::Point(FRAME_WIDTH / 2, FRAME_HEIGHT / 2), 10, cv::Scalar(250), 2);
                         //cv::imshow("Image", hsv_image);
-                        cv::imshow("Mask", temp);
                         cv::imshow("Original", image);
 						//cv::imshow("Edges", edges);
 #else
@@ -223,6 +228,8 @@ int main(int argc, char **argv)
         printf("Loop time: %lld ms\n", dt);
 #endif
     }
+
+    fclose(out_fp);
 
     return 0;
 }
