@@ -7,7 +7,7 @@ test: test.cc Timer.cc
 	$(CXX) $(CFLAGS) $(INCLUDES) test.cc Timer.cc -o $@ $(LDFLAGS)
 
 cube: cube.cc Timer.cc
-	$(CXX) $(CFLAGS) $(INCLUDES) cube.cc Timer.cc -o $@ $(LDFLAGS)
+	$(CXX) $(CFLAGS) $(INCLUDES) cube.cc pack2.cc Timer.cc -o $@ $(LDFLAGS)
 
 cube_nt: cube_nt.cc Timer.cc
 	$(CXX) $(CFLAGS) $(INCLUDES) cube_nt.cc Timer.cc -o $@ $(LDFLAGS) -lpython2.7
